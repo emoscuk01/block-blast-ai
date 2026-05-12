@@ -154,7 +154,12 @@ class GpuVecEnv(VecEnv):
         return [False] * len(indices)
 
     def env_method(self, method_name: str, *args: Any, indices: Sequence[int] | None = None, **kwargs: Any) -> list:
-        """Env metodu çağrısı — GPU env'de desteklenmiyor."""
+        """Env metodu çağrısı — action_masks desteklenir."""
+        if method_name == "action_masks":
+            masks = self.action_masks()  # [N, 192] numpy
+            if indices is None:
+                return [masks[i] for i in range(self.num_envs)]
+            return [masks[i] for i in indices]
         raise NotImplementedError(
             f"GpuVecEnv.env_method('{method_name}') desteklenmiyor. "
             "GPU ortam bireysel ortam metodlarını desteklemez."

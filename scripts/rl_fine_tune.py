@@ -178,10 +178,14 @@ class KLDivergenceCallback(BaseCallback):
         if buf.observations is None or len(buf.observations) == 0:
             return 0.0
 
-        n = min(self.sample_size, len(buf.observations))
-        indices = np.random.choice(len(buf.observations), size=n, replace=False)
+        # Observations shape is typically (buffer_size, n_envs, obs_dim)
+        # We need to flatten the first two dimensions to sample individual observations
+        obs_flat = buf.observations.reshape(-1, buf.observations.shape[-1])
+        
+        n = min(self.sample_size, len(obs_flat))
+        indices = np.random.choice(len(obs_flat), size=n, replace=False)
         sample_obs = torch.tensor(
-            buf.observations[indices], dtype=torch.float32
+            obs_flat[indices], dtype=torch.float32
         ).to(self.model.device)
 
         # Squeeze eğer gereksiz boyut varsa

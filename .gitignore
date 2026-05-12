@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+.venv/
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Project — büyük dosyalar (modeller, loglar, veri)
+models/
+logs/
+data/
+calibration_data/
+*.zip
+*.pkl
+*.npz
+*.pt
+*.pth
+*.onnx
+
+# Tensorboard
+runs/
+events.out.tfevents.*
+
+# Pytest
+.pytest_cache/

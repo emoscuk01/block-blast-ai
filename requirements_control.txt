@@ -1,0 +1,5 @@
+# Ek Python bağımlılığı yok.
+# ADB (Android Debug Bridge) sisteme kurulu olmalı:
+#   https://developer.android.com/tools/releases/platform-tools
+# scrcpy (opsiyonel, canlı izleme için):
+#   https://github.com/Genymobile/scrcpy

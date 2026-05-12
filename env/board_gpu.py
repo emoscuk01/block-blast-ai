@@ -1,8 +1,8 @@
 """GPU Batched Board Operations.
 
-N adet 8×8 tahtayı tek torch.Tensor olarak yönetir.
-Tüm operasyonlar (yerleştirme, satır/sütun silme, geçerlilik kontrolü)
-vektörize GPU kernel'ları ile çalışır — Python for döngüsü yoktur.
+N adet 8x8 tahtayi tek torch.Tensor olarak yonetir.
+Tum operasyonlar (yerlestirme, satir/sutun silme, gecerlilik kontrolu)
+vektorize GPU kernel'lari ile calisir — Python for dongusu yoktur.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ BOARD_SIZE: int = 8
 
 
 class BatchBoard:
-    """N adet 8×8 tahtayı GPU tensörü olarak yönetir."""
+    """N adet 8x8 tahtayi GPU tensoru olarak yonetir."""
 
     def __init__(self, n_envs: int, device: torch.device) -> None:
         self.n_envs = n_envs
@@ -27,19 +27,24 @@ class BatchBoard:
             dtype=torch.float32, device=device,
         )
 
+        # Pre-compute position grid (sabit, bir kere olustur)
+        self._pos_r = torch.arange(BOARD_SIZE, device=device).repeat_interleave(BOARD_SIZE)  # [64]
+        self._pos_c = torch.arange(BOARD_SIZE, device=device).repeat(BOARD_SIZE)              # [64]
+        self._cell_range = torch.arange(MAX_CELLS, device=device)  # [9]
+
     # ------------------------------------------------------------------
     # Reset
     # ------------------------------------------------------------------
 
     def reset(self, env_mask: torch.BoolTensor | None = None) -> None:
-        """Belirtilen ortamların tahtalarını sıfırla."""
+        """Belirtilen ortamlarin tahtalarini sifirla."""
         if env_mask is None:
             self.grids.zero_()
         else:
             self.grids[env_mask] = 0.0
 
     # ------------------------------------------------------------------
-    # Yerleştirme
+    # Yerlestirme
     # ------------------------------------------------------------------
 
     def place_batch(
@@ -49,16 +54,16 @@ class BatchBoard:
         cols: torch.LongTensor,
         env_mask: torch.BoolTensor | None = None,
     ) -> torch.LongTensor:
-        """Parçaları tahtaya yerleştir ve dolu satır/sütunları temizle.
+        """Parcalari tahtaya yerlestir ve dolu satir/sutunlari temizle.
 
         Args:
-            piece_ids: [K] — her ortam için parça tipi ID'si
-            rows:      [K] — yerleştirme satırı
-            cols:      [K] — yerleştirme sütunu
-            env_mask:  [N] bool — sadece True olan ortamlara uygula (None → hepsi)
+            piece_ids: [K] — her ortam icin parca tipi ID'si
+            rows:      [K] — yerlestirme satiri
+            cols:      [K] — yerlestirme sutunu
+            env_mask:  [N] bool — sadece True olan ortamlara uygula (None -> hepsi)
 
         Returns:
-            lines_cleared: [K] — her ortamda silinen satır+sütun sayısı
+            lines_cleared: [K] — her ortamda silinen satir+sutun sayisi
         """
         if env_mask is not None:
             grids = self.grids[env_mask]
@@ -72,7 +77,7 @@ class BatchBoard:
 
         reg = self.reg
 
-        # --- Parça hücrelerini tahtaya yaz ---
+        # --- Parca hucrelerini tahtaya yaz ---
         offsets = reg.offsets[piece_ids]    # [K, MAX_CELLS, 2]
         n_cells = reg.n_cells[piece_ids]   # [K]
 
@@ -80,11 +85,11 @@ class BatchBoard:
         abs_rows = rows.unsqueeze(1) + offsets[:, :, 0]  # [K, MAX_CELLS]
         abs_cols = cols.unsqueeze(1) + offsets[:, :, 1]   # [K, MAX_CELLS]
 
-        # Geçerli hücre mask'ı (padding değil)
-        cell_range = torch.arange(MAX_CELLS, device=self.device).unsqueeze(0)
+        # Gecerli hucre mask'i (padding degil)
+        cell_range = self._cell_range.unsqueeze(0)
         valid_cell = cell_range < n_cells.unsqueeze(1)  # [K, MAX_CELLS]
 
-        # Sınır kontrolü
+        # Sinir kontrolu
         in_bounds = (
             (abs_rows >= 0) & (abs_rows < BOARD_SIZE) &
             (abs_cols >= 0) & (abs_cols < BOARD_SIZE)
@@ -99,7 +104,7 @@ class BatchBoard:
 
         grids[env_idx[valid], safe_rows[valid], safe_cols[valid]] = 1.0
 
-        # --- Dolu satır/sütun silme ---
+        # --- Dolu satir/sutun silme ---
         row_full = (grids.sum(dim=2) == BOARD_SIZE)  # [K, 8]
         col_full = (grids.sum(dim=1) == BOARD_SIZE)  # [K, 8]
 
@@ -118,73 +123,101 @@ class BatchBoard:
         return lines_cleared
 
     # ------------------------------------------------------------------
-    # Geçerli Aksiyon Mask'ı — Conv2d ile
+    # Gecerli Aksiyon Mask'i — Tamamen Vektorize (Python loop yok)
     # ------------------------------------------------------------------
 
     def compute_valid_mask(
         self,
         piece_ids: torch.LongTensor,
     ) -> torch.BoolTensor:
-        """Tüm ortamlar için geçerli aksiyon mask'ı hesapla.
+        """Tum ortamlar icin gecerli aksiyon mask'i hesapla.
+
+        Tamamen vektorize: Python loop yok, tek GPU kernel batch'i.
 
         Args:
-            piece_ids: [N, 3] — her ortamın 3 parça slot'undaki parça tipi
-                       -1 = slot kullanıldı (geçersiz)
+            piece_ids: [N, 3] — her ortamin 3 parca slot'undaki parca tipi
+                       -1 = slot kullanildi (gecersiz)
 
         Returns:
-            mask: [N, 192] bool — geçerli aksiyonlar True
+            mask: [N, 192] bool — gecerli aksiyonlar True
         """
         N = self.n_envs
         reg = self.reg
-        mask = torch.zeros(N, 192, dtype=torch.bool, device=self.device)
-        boards = self.grids
+        device = self.device
+        boards = self.grids  # [N, 8, 8]
+
+        pos_r = self._pos_r  # [64]
+        pos_c = self._pos_c  # [64]
+        cell_range = self._cell_range  # [9]
+
+        mask = torch.zeros(N, 192, dtype=torch.bool, device=device)
 
         for slot in range(3):
             slot_offset = slot * 64
-            pids = piece_ids[:, slot]
-            available = pids >= 0
+            pids = piece_ids[:, slot]  # [N]
+            available = pids >= 0      # [N]
 
             if not available.any():
                 continue
 
-            unique_pids = pids[available].unique()
+            # -1 pid'leri 0'a clamp (sonra available mask ile filtrelenecek)
+            safe_pids = pids.clamp(min=0)  # [N]
 
-            for pid_val in unique_pids:
-                pid = pid_val.item()
-                env_sel = available & (pids == pid)
-                if not env_sel.any():
-                    continue
+            # Her ortamin parcasinin hucre offset'leri
+            off_r = reg.offsets[safe_pids, :, 0]   # [N, 9]
+            off_c = reg.offsets[safe_pids, :, 1]   # [N, 9]
+            n_cells = reg.n_cells[safe_pids]        # [N]
+            piece_h = reg.sizes[safe_pids, 0]       # [N]
+            piece_w = reg.sizes[safe_pids, 1]       # [N]
 
-                sel_boards = boards[env_sel]
-                K = sel_boards.shape[0]
+            # Mutlak hucre pozisyonlari: [N, 64, 9]
+            # abs_r[n, p, c] = pos_r[p] + off_r[n, c]
+            abs_r = pos_r[None, :, None] + off_r[:, None, :]  # [N, 64, 9]
+            abs_c = pos_c[None, :, None] + off_c[:, None, :]  # [N, 64, 9]
 
-                kernel = reg.kernels[pid]
-                pH = reg.sizes[pid, 0].item()
-                pW = reg.sizes[pid, 1].item()
+            # Hangi hucreler gercek (padding degil)
+            valid_cell = cell_range[None, None, :] < n_cells[:, None, None]  # [N, 1, 9] -> broadcast
 
-                overlap = F.conv2d(
-                    sel_boards.unsqueeze(1),
-                    kernel,
-                    padding=0,
-                )
-                overlap = overlap.squeeze(1)
+            # Sinir kontrolu
+            in_bounds = (
+                (abs_r >= 0) & (abs_r < BOARD_SIZE) &
+                (abs_c >= 0) & (abs_c < BOARD_SIZE)
+            )  # [N, 64, 9]
 
-                valid_positions = (overlap == 0)
+            # Guvenli indeksleme icin clamp
+            safe_r = abs_r.clamp(0, BOARD_SIZE - 1)
+            safe_c = abs_c.clamp(0, BOARD_SIZE - 1)
 
-                outH, outW = valid_positions.shape[1], valid_positions.shape[2]
-                valid_8x8 = torch.zeros(K, BOARD_SIZE, BOARD_SIZE, dtype=torch.bool, device=self.device)
-                valid_8x8[:, :outH, :outW] = valid_positions
+            # Tahtadan hucre degerlerini oku: boards[n, r, c]
+            env_idx = torch.arange(N, device=device)[:, None, None].expand_as(safe_r)
+            cell_values = boards[env_idx, safe_r, safe_c]  # [N, 64, 9]
+            cell_empty = (cell_values == 0)
 
-                mask[env_sel, slot_offset:slot_offset + 64] = valid_8x8.reshape(K, 64)
+            # Parca tahtaya sigiyor mu kontrolu
+            pos_fits = (
+                (pos_r[None, :] + piece_h[:, None] <= BOARD_SIZE) &
+                (pos_c[None, :] + piece_w[:, None] <= BOARD_SIZE)
+            )  # [N, 64]
+
+            # Bir pozisyon gecerli eger:
+            # 1. Tum gercek hucreler sinir icinde VE bos
+            # 2. Parca tahtaya sigiyor
+            # 3. Slot kullanilabilir
+            cell_ok = (~valid_cell) | (in_bounds & cell_empty)  # padding hucreleri OK
+            all_cells_ok = cell_ok.all(dim=2)  # [N, 64]
+
+            position_valid = all_cells_ok & pos_fits & available[:, None]
+
+            mask[:, slot_offset:slot_offset + 64] = position_valid
 
         return mask
 
     # ------------------------------------------------------------------
-    # Heuristik Metrikleri (reward hesabı için)
+    # Heuristik Metrikleri (reward hesabi icin)
     # ------------------------------------------------------------------
 
     def aggregate_height_batch(self) -> torch.Tensor:
-        """Her ortam için aggregate height: [N]."""
+        """Her ortam icin aggregate height: [N]."""
         filled = (self.grids > 0).float()
         has_any = filled.any(dim=1)
         first_filled_row = filled.argmax(dim=1)
@@ -192,7 +225,7 @@ class BatchBoard:
         return heights.sum(dim=1).float()
 
     def bumpiness_batch(self) -> torch.Tensor:
-        """Her ortam için bumpiness: [N]."""
+        """Her ortam icin bumpiness: [N]."""
         filled = (self.grids > 0).float()
         has_any = filled.any(dim=1)
         first_filled_row = filled.argmax(dim=1)
@@ -201,7 +234,7 @@ class BatchBoard:
         return diffs.sum(dim=1).float()
 
     def holes_batch(self) -> torch.Tensor:
-        """Her ortam için delik sayısı: [N]."""
+        """Her ortam icin delik sayisi: [N]."""
         filled = (self.grids > 0)
         cum_filled, _ = filled.cummax(dim=1)
         holes = cum_filled & (~filled)

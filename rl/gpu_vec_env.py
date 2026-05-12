@@ -85,54 +85,52 @@ class GpuVecEnv(VecEnv):
         )
 
     def step_wait(self) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[dict]]:
-        """Step sonuçlarını döndür.
+        """Step sonuclarini dondur.
 
         Returns:
             (obs, rewards, dones, infos) — hepsi numpy
         """
-        assert self._actions is not None, "step_async çağrılmadan step_wait çağrıldı"
+        assert self._actions is not None, "step_async cagrilmadan step_wait cagirildi"
 
         obs_gpu, rewards_gpu, dones_gpu, gpu_infos = self.batch_env.step(self._actions)
 
-        # GPU → CPU transfer (küçük boyut, minimal overhead)
+        # GPU -> CPU transfer (kucuk boyut, minimal overhead)
         obs = obs_gpu.cpu().numpy()
         rewards = rewards_gpu.cpu().numpy()
         dones = dones_gpu.cpu().numpy()
 
-        # Action mask'ı cache'le
+        # Action mask'i cache'le
         action_masks = gpu_infos["action_masks"]
         self._cached_masks = action_masks.cpu().numpy()
 
-        # Terminal obs'ları kaydet
+        # Terminal obs'lari kaydet
         terminal_obs_gpu = gpu_infos.get("terminal_observation")
         if terminal_obs_gpu is not None:
             self._terminal_obs = terminal_obs_gpu.cpu().numpy()
 
-        # SB3 info dict'leri oluştur
-        lines_cleared = gpu_infos["lines_cleared"].cpu().numpy()
-        scores = gpu_infos["scores"].cpu().numpy()
-        turns = gpu_infos["turns"].cpu().numpy()
+        # SB3 info dict'leri -- LAZY: sadece biten env'lere detay ekle
         terminal_dones = gpu_infos["terminal_dones"].cpu().numpy()
 
-        infos: list[dict[str, Any]] = []
-        for i in range(self.num_envs):
-            info: dict[str, Any] = {
-                "score": int(scores[i]),
-                "turn": int(turns[i]),
-                "lines_cleared": int(lines_cleared[i]),
-                "action_mask": self._cached_masks[i],
-            }
-            # SB3 Monitor uyumluluğu: episode bittiğinde episode info ekle
-            if terminal_dones[i]:
-                info["episode"] = {
-                    "r": float(rewards[i]),  # Terminal reward
-                    "l": int(turns[i]),       # Episode length (turns)
-                    "t": 0.0,                 # Time (placeholder)
+        # Hizli yol: bos dict listesi + sadece terminal env'lere doldur
+        infos: list[dict[str, Any]] = [{} for _ in range(self.num_envs)]
+
+        terminal_indices = np.where(terminal_dones)[0]
+        if len(terminal_indices) > 0:
+            scores = gpu_infos["scores"].cpu().numpy()
+            turns = gpu_infos["turns"].cpu().numpy()
+
+            for i in terminal_indices:
+                infos[i] = {
+                    "score": int(scores[i]),
+                    "turn": int(turns[i]),
+                    "episode": {
+                        "r": float(rewards[i]),
+                        "l": int(turns[i]),
+                        "t": 0.0,
+                    },
                 }
-                # SB3 convention: terminal_observation
                 if self._terminal_obs is not None:
-                    info["terminal_observation"] = self._terminal_obs[i]
-            infos.append(info)
+                    infos[i]["terminal_observation"] = self._terminal_obs[i]
 
         self._actions = None
         return obs, rewards, dones, infos

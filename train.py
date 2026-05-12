@@ -198,8 +198,8 @@ def train(args: argparse.Namespace) -> None:
 
         print(f"  CUDA device      : {torch.cuda.get_device_name(0)}")
         print(f"  CUDA version     : {torch.version.cuda}")
-        vram_total = torch.cuda.get_device_properties(0).total_mem / (1024**3)
-        vram_free = (torch.cuda.get_device_properties(0).total_mem - torch.cuda.memory_allocated(0)) / (1024**3)
+        vram_total = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+        vram_free = (torch.cuda.get_device_properties(0).total_memory - torch.cuda.memory_allocated(0)) / (1024**3)
         print(f"  VRAM total       : {vram_total:.1f} GB")
         print(f"  VRAM free        : {vram_free:.1f} GB")
         print(f"  cuDNN benchmark  : True")

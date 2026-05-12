@@ -458,6 +458,8 @@ def rl_fine_tune(
         model.vf_coef = RL_VF_COEF
         model.max_grad_norm = RL_MAX_GRAD_NORM
         model.target_kl = RL_TARGET_KL
+        # Buffer'i yeniden oluşturmaya zorla (n_steps degisti)
+        model.rollout_buffer = None
 
         if verbose:
             print(f"[Gen {gen}] Ön-eğitimli model yüklendi: {pretrained_path}")
@@ -537,7 +539,7 @@ def rl_fine_tune(
         print(f"[Gen {gen}] RL Fine-Tune Başlıyor")
         print(f"  Toplam adım  : {timesteps:,}")
         print(f"  Paralel ortam: {n_envs} ({vec_env_type})")
-        print(f"  Rollout      : n_steps={RL_N_STEPS} -> buffer={rollout_size:,}")
+        print(f"  Rollout      : n_steps={n_steps} -> buffer={rollout_size:,}")
         print(f"  batch_size   : {eff_batch}  |  n_epochs: {eff_epochs}")
         print(f"  ent_coef     : {RL_ENT_COEF}")
         print(f"  KL threshold : {RL_KL_THRESHOLD}")

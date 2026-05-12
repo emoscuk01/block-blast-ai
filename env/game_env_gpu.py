@@ -160,6 +160,10 @@ class BatchGameEnv:
         # --- Terminal obs ---
         terminal_obs = self._get_obs()
 
+        # --- Terminal bilgileri kaydet (reset'ten ÖNCE!) ---
+        terminal_scores = self.scores.clone()
+        terminal_turns = self.turns.clone()
+
         # --- Auto-reset ---
         if new_dones.any():
             self.reset_envs(new_dones)
@@ -169,8 +173,8 @@ class BatchGameEnv:
         obs = self._get_obs()
 
         infos = {
-            "scores": self.scores.clone(),
-            "turns": self.turns.clone(),
+            "scores": terminal_scores,
+            "turns": terminal_turns,
             "lines_cleared": lines_cleared,
             "terminal_dones": new_dones,
             "action_masks": action_mask,

@@ -458,8 +458,17 @@ def rl_fine_tune(
         model.vf_coef = RL_VF_COEF
         model.max_grad_norm = RL_MAX_GRAD_NORM
         model.target_kl = RL_TARGET_KL
-        # Buffer'i yeniden oluşturmaya zorla (n_steps degisti)
-        model.rollout_buffer = None
+        # Buffer'ı doğru tipte yeniden oluştur (n_steps değiştiği için)
+        from sb3_contrib.common.maskable.buffers import MaskableRolloutBuffer
+        model.rollout_buffer = MaskableRolloutBuffer(
+            buffer_size=n_steps,
+            observation_space=model.observation_space,
+            action_space=model.action_space,
+            device=model.device,
+            gamma=model.gamma,
+            gae_lambda=model.gae_lambda,
+            n_envs=n_envs,
+        )
 
         if verbose:
             print(f"[Gen {gen}] Ön-eğitimli model yüklendi: {pretrained_path}")

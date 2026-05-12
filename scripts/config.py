@@ -39,7 +39,7 @@ BC_VALIDATION_SPLIT: float = 0.05   # Eğitim verisinin %5'i doğrulama için
 # =========================================================================
 # 4. RL Fine-Tune
 # =========================================================================
-RL_TIMESTEPS: int = 20_000_000       # PPO toplam adım
+RL_TIMESTEPS: int = 10_000_000       # PPO toplam adım
 RL_N_ENVS: int = 128                 # Paralel ortam sayısı
 RL_N_STEPS: int = 2048               # Ortam başına rollout uzunluğu
 RL_BATCH_SIZE: int = 8192            # PPO minibatch (VRAM'e göre ayarla)

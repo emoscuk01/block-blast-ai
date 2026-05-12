@@ -39,13 +39,13 @@ BC_VALIDATION_SPLIT: float = 0.05   # Eğitim verisinin %5'i doğrulama için
 # =========================================================================
 # 4. RL Fine-Tune
 # =========================================================================
-RL_TIMESTEPS: int = 10_000_000       # PPO toplam adım
+RL_TIMESTEPS: int = 15_000_000       # PPO toplam adım
 RL_N_ENVS: int = 128                 # Paralel ortam sayısı
 RL_N_STEPS: int = 2048               # Ortam başına rollout uzunluğu
 RL_BATCH_SIZE: int = 8192            # PPO minibatch (VRAM'e göre ayarla)
 RL_N_EPOCHS: int = 4                 # PPO epoch
 RL_LEARNING_RATE: float = 3e-4       # PPO learning rate
-RL_ENT_COEF: float = 0.08           # Entropy katsayısı
+RL_ENT_COEF: float = 0.05           # Entropy katsayısı
 RL_GAMMA: float = 0.99
 RL_GAE_LAMBDA: float = 0.95
 RL_CLIP_RANGE_START: float = 0.2
@@ -61,7 +61,7 @@ RL_KL_THRESHOLD: float = 0.05       # KL divergence sınırı
 # =========================================================================
 EVAL_N_GAMES: int = 100              # Değerlendirme maç sayısı
 EVAL_SEED_BASE: int = 7000           # Deterministik seed başlangıcı
-PROMOTION_WIN_RATE: float = 0.55     # %55 -> terfi
+PROMOTION_WIN_RATE: float = 0.50     # %55 -> terfi
 
 # =========================================================================
 # 6. GPU-Vectorized Environment

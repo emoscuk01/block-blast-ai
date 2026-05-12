@@ -64,12 +64,31 @@ def play_heuristic_game(seed: int) -> dict:
     return {"score": env.score, "turns": env.turn, "moves": moves}
 
 
-def play_model_game(model, seed: int) -> dict:
+def play_model_game(model, seed: int, vecnorm_path: str | None = None) -> dict:
     """MaskablePPO modeli ile tek oyun oyna.
+
+    Args:
+        model: MaskablePPO modeli
+        seed: Oyun seed'i
+        vecnorm_path: VecNormalize istatistik dosyasi (varsa obs normalize edilir)
 
     Returns:
         {"score": int, "turns": int, "moves": int}
     """
+    # VecNormalize yukle (egitimde kullanildiysa)
+    obs_normalizer = None
+    if vecnorm_path and os.path.exists(vecnorm_path):
+        from stable_baselines3.common.vec_env import VecNormalize as VN
+        import pickle
+        try:
+            with open(vecnorm_path, "rb") as f:
+                vecnorm_data = pickle.load(f)
+            # VecNormalize obs_rms (running mean/std) al
+            if hasattr(vecnorm_data, 'obs_rms'):
+                obs_normalizer = vecnorm_data.obs_rms
+        except Exception:
+            pass
+
     env = GameEnv(seed=seed)
     env.reset()
 
@@ -79,7 +98,12 @@ def play_model_game(model, seed: int) -> dict:
         obs_vec = encode_observation(obs_dict)
         mask = get_valid_action_mask(env)
 
-        # Geçerli hamle yoksa dur
+        # Obs normalize et (egitimle ayni scale)
+        if obs_normalizer is not None:
+            obs_vec = (obs_vec - obs_normalizer.mean) / np.sqrt(obs_normalizer.var + 1e-8)
+            obs_vec = np.clip(obs_vec, -10.0, 10.0).astype(np.float32)
+
+        # Gecerli hamle yoksa dur
         if not mask.any():
             break
 
@@ -90,7 +114,7 @@ def play_model_game(model, seed: int) -> dict:
         )
         piece_idx, row, col = action_to_tuple(int(action_int))
 
-        # Geçerlilik kontrolü
+        # Gecerlilik kontrolu
         if not mask[int(action_int)]:
             valid = env.get_valid_actions()
             if not valid:
@@ -181,8 +205,14 @@ def evaluate_generation(
     from sb3_contrib import MaskablePPO
 
     challenger = MaskablePPO.load(challenger_path, device="cpu")
+    # VecNormalize istatistikleri
+    challenger_vecnorm = os.path.join(gen_dir(gen), "vecnormalize.pkl")
+    if not os.path.exists(challenger_vecnorm):
+        challenger_vecnorm = None
     if verbose:
         print(f"  Challenger: {challenger_path}")
+        if challenger_vecnorm:
+            print(f"  VecNorm  : {challenger_vecnorm}")
 
     # Master — gen-1 == 0 ise HeuristicAgent, aksi halde önceki model
     master_is_heuristic = (gen - 1) == 0
@@ -212,14 +242,17 @@ def evaluate_generation(
     t_start = time.time()
     for i, seed in enumerate(seeds):
         # Challenger
-        c_result = play_model_game(challenger, seed)
+        c_result = play_model_game(challenger, seed, vecnorm_path=challenger_vecnorm)
         challenger_scores.append(c_result["score"])
 
         # Master
         if master_is_heuristic:
             m_result = play_heuristic_game(seed)
         else:
-            m_result = play_model_game(master_model, seed)
+            master_vecnorm = os.path.join(gen_dir(gen - 1), "vecnormalize.pkl")
+            if not os.path.exists(master_vecnorm):
+                master_vecnorm = None
+            m_result = play_model_game(master_model, seed, vecnorm_path=master_vecnorm)
         master_scores.append(m_result["score"])
 
         if c_result["score"] > m_result["score"]:
